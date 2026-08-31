@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Water Tank Dashboard</title>
+    
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        :root {
+            --bg-color: #f4f7f6;
+            --card-bg: #ffffff;
+            --text-color: #333333;
+            --primary: #007bff;
+            --danger: #dc3545;
+            --success: #28a745;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .status {
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            background-color: var(--danger);
+            color: white;
+        }
+        .status.connected {
+            background-color: var(--success);
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .card {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .card h3 { margin-top: 0; color: #555; }
+        .value { font-size: 2em; font-weight: bold; margin: 10px 0; color: var(--primary); }
+        .chart-container {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        button {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 1em;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        button:hover { background-color: #0056b3; }
+        button:active { transform: scale(0.98); }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h1>Water System Dashboard</h1>
+        <div id="connectionStatus" class="status">Disconnected</div>
+    </div>
+
+    <div class="grid">
+        <div class="card">
+            <h3>Tank 1 Level</h3>
+            <div id="tank1Percent" class="value">0%</div>
+            <p>Flow: <span id="flow1">0.0</span> L/min</p>
+        </div>
+        <div class="card">
+            <h3>Tank 2 Level</h3>
+            <div id="tank2Percent" class="value">0%</div>
+            <p>Flow: <span id="flow2">0.0</span> L/min</p>
+        </div>
+        <div class="card">
+            <h3>System Status</h3>
+            <div id="pumpStatus" class="value" style="color: #555;">IDLE</div>
+            <button onclick="calibrateTanks()">Calibrate Empty Tanks</button>
+        </div>
+    </div>
+
+    <div class="chart-container">
+        <canvas id="flowChart"></canvas>
+    </div>
+</div>
+
+<script>
+    // --- MQTT Configuration ---
+    // Using EMQX public broker WebSockets port (8083)
+    const brokerUrl = 'ws://broker.emqx.io:8083/mqtt';
+    const telemetryTopic = 'water_system/sensors';
+    const commandTopic = 'water_system/commands';
+    
+    // Connect to the MQTT broker
+    const client = mqtt.connect(brokerUrl);
+
+    // --- Chart.js Setup ---
+    const ctx = document.getElementById('flowChart').getContext('2d');
+    const maxDataPoints = 20; // Number of points to show on the graph
+    
+    const flowChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [], // Time labels
+            datasets: [
+                {
+                    label: 'Flow 1 (L/min)',
+                    borderColor: '#007bff',
+                    backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                    data: [],
+                    fill: true,
+                    tension: 0.3
+                },
+                {
+                    label: 'Flow 2 (L/min)',
+                    borderColor: '#28a745',
+                    backgroundColor: 'rgba(40, 167, 69, 0.1)',
+                    data: [],
+                    fill: true,
+                    tension: 0.3
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: { beginAtZero: true, title: { display: true, text: 'Liters per Minute' } },
+                x: { title: { display: true, text: 'Time' } }
+            },
+            animation: { duration: 0 } // Disable animation for smoother real-time updates
+        }
+    });
+
+    // --- MQTT Event Handlers ---
+    
+    client.on('connect', () => {
+        console.log('Connected to MQTT Broker via WebSockets');
+        const statusEl = document.getElementById('connectionStatus');
+        statusEl.innerText = 'Connected';
+        statusEl.classList.add('connected');
+        
+        // Subscribe to the telemetry topic
+        client.subscribe(telemetryTopic, (err) => {
+            if (err) console.error('Subscription error:', err);
+        });
+    });
+
+    client.on('message', (topic, message) => {
+        if (topic === telemetryTopic) {
+            try {
+                const data = JSON.parse(message.toString());
+                updateDashboard(data);
+            } catch (e) {
+                console.error("Error parsing JSON:", e);
+            }
+        }
+    });
+
+    client.on('close', () => {
+        const statusEl = document.getElementById('connectionStatus');
+        statusEl.innerText = 'Disconnected';
+        statusEl.classList.remove('connected');
+    });
+
+    // --- UI & Graph Update Logic ---
+    function updateDashboard(data) {
+        // Update text values
+        document.getElementById('tank1Percent').innerText = data.tank1_percent + '%';
+        document.getElementById('tank2Percent').innerText = data.tank2_percent + '%';
+        document.getElementById('flow1').innerText = data.flowrate1_Lmin.toFixed(1);
+        document.getElementById('flow2').innerText = data.flowrate2_Lmin.toFixed(1);
+        
+        const pumpEl = document.getElementById('pumpStatus');
+        if (data.pump_active) {
+            pumpEl.innerText = 'PUMPING';
+            pumpEl.style.color = '#28a745';
+        } else {
+            pumpEl.innerText = 'IDLE';
+            pumpEl.style.color = '#555';
+        }
+
+        // Update Chart
+        const now = new Date();
+        const timeString = now.getHours().toString().padStart(2, '0') + ':' + 
+                           now.getMinutes().toString().padStart(2, '0') + ':' + 
+                           now.getSeconds().toString().padStart(2, '0');
+
+        flowChart.data.labels.push(timeString);
+        flowChart.data.datasets[0].data.push(data.flowrate1_Lmin);
+        flowChart.data.datasets[1].data.push(data.flowrate2_Lmin);
+
+        // Remove oldest data point if we exceed maxDataPoints
+        if (flowChart.data.labels.length > maxDataPoints) {
+            flowChart.data.labels.shift();
+            flowChart.data.datasets[0].data.shift();
+            flowChart.data.datasets[1].data.shift();
+        }
+        
+        flowChart.update();
+    }
+
+    // --- Command Logic ---
+    function calibrateTanks() {
+        if (confirm("Are you sure? Ensure both tanks are currently completely empty before calibrating.")) {
+            const payload = JSON.stringify({ action: "calibrate" });
+            client.publish(commandTopic, payload);
+            alert("Calibration command sent to ESP32.");
+        }
+    }
+</script>
+
+</body>
+</html>
