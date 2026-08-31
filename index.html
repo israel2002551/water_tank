@@ -3,236 +3,983 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Water Tank Dashboard</title>
+    <title>Smart Water Tank Management System</title>
     
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+
+    <!-- MQTT & Chart.js -->
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <style>
         :root {
-            --bg-color: #f4f7f6;
-            --card-bg: #ffffff;
-            --text-color: #333333;
-            --primary: #007bff;
-            --danger: #dc3545;
-            --success: #28a745;
+            --bg-base: #0b111e;
+            --card-bg: rgba(22, 32, 54, 0.75);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --text-main: #f1f5f9;
+            --text-muted: #94a3b8;
+            
+            --primary: #38bdf8;
+            --primary-glow: rgba(56, 189, 248, 0.35);
+            --secondary: #818cf8;
+            --accent-green: #10b981;
+            --accent-green-glow: rgba(16, 185, 129, 0.3);
+            --accent-red: #ef4444;
+            --accent-red-glow: rgba(239, 68, 68, 0.35);
+            --accent-amber: #f59e0b;
+            --tank-water: linear-gradient(180deg, #38bdf8 0%, #0284c7 100%);
         }
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-color);
+
+        * {
+            box-sizing: border-box;
             margin: 0;
-            padding: 20px;
+            padding: 0;
         }
-        .container {
-            max-width: 1000px;
-            margin: 0 auto;
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: radial-gradient(circle at top right, #1e293b, #0b111e 60%);
+            color: var(--text-main);
+            min-height: 100vh;
+            padding: 24px;
+            display: flex;
+            justify-content: center;
         }
-        .header {
+
+        .dashboard-container {
+            width: 100%;
+            max-width: 1200px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        /* Header */
+        header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 16px;
+            padding: 20px 24px;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            backdrop-filter: blur(12px);
         }
-        .status {
-            padding: 5px 15px;
-            border-radius: 20px;
-            font-weight: bold;
-            background-color: var(--danger);
-            color: white;
+
+        .brand-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
         }
-        .status.connected {
-            background-color: var(--success);
+
+        .brand-title .icon {
+            font-size: 2rem;
+            filter: drop-shadow(0 0 10px var(--primary-glow));
         }
-        .grid {
+
+        .brand-title h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            background: linear-gradient(90deg, #ffffff, #94a3b8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .brand-title p {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .header-meta {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 14px;
+            border-radius: 9999px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border: 1px solid transparent;
+        }
+
+        .badge-disconnected {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--accent-red);
+            border-color: rgba(239, 68, 68, 0.3);
+        }
+
+        .badge-connected {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-green);
+            border-color: rgba(16, 185, 129, 0.3);
+            box-shadow: 0 0 15px var(--accent-green-glow);
+        }
+
+        .badge-pulse-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.85); }
+        }
+
+        /* Banner Alert */
+        .alert-banner {
+            display: none;
+            padding: 14px 20px;
+            border-radius: 12px;
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid var(--accent-red);
+            color: #fca5a5;
+            font-weight: 500;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            animation: slideDown 0.3s ease;
+        }
+
+        /* Main Grid */
+        .main-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin-bottom: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 24px;
         }
+
         .card {
             background: var(--card-bg);
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            text-align: center;
+            border: 1px solid var(--card-border);
+            border-radius: 20px;
+            padding: 24px;
+            backdrop-filter: blur(12px);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.2s, box-shadow 0.2s;
         }
-        .card h3 { margin-top: 0; color: #555; }
-        .value { font-size: 2em; font-weight: bold; margin: 10px 0; color: var(--primary); }
-        .chart-container {
-            background: var(--card-bg);
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            margin-bottom: 20px;
+
+        .card:hover {
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
         }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .card-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--text-main);
+        }
+
+        .card-subtitle {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* Tank Visualizer */
+        .tank-visual-container {
+            display: flex;
+            align-items: center;
+            justify-content: space-around;
+            padding: 10px 0;
+            gap: 20px;
+        }
+
+        .tank-cylinder {
+            width: 100px;
+            height: 180px;
+            border-radius: 12px;
+            border: 3px solid rgba(255, 255, 255, 0.2);
+            background: rgba(15, 23, 42, 0.8);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            align-items: flex-end;
+            box-shadow: inset 0 0 15px rgba(0,0,0,0.6);
+        }
+
+        .tank-water-fill {
+            width: 100%;
+            height: 0%;
+            background: var(--tank-water);
+            transition: height 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            box-shadow: 0 -4px 15px rgba(56, 189, 248, 0.5);
+        }
+
+        .tank-water-fill::before {
+            content: '';
+            position: absolute;
+            top: -4px;
+            left: 0;
+            right: 0;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.4);
+            border-radius: 50%;
+            filter: blur(1px);
+        }
+
+        .tank-grid-lines {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 8px 4px;
+        }
+
+        .tank-mark {
+            width: 12px;
+            height: 1px;
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .tank-metrics {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            flex: 1;
+        }
+
+        .metric-item {
+            background: rgba(15, 23, 42, 0.5);
+            padding: 12px 16px;
+            border-radius: 12px;
+            border: 1px solid var(--card-border);
+        }
+
+        .metric-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .metric-val {
+            font-size: 1.6rem;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--primary);
+        }
+
+        .metric-val.green { color: var(--accent-green); }
+        .metric-val.amber { color: var(--accent-amber); }
+        .metric-val.red   { color: var(--accent-red); }
+
+        /* Actuator Status Pill Grid */
+        .status-pill-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .status-pill {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 14px;
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+        }
+
+        .pill-name {
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-muted);
+        }
+
+        .pill-state {
+            font-size: 0.8rem;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .pill-state.active {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--accent-green);
+            border: 1px solid var(--accent-green);
+        }
+
+        .pill-state.inactive {
+            background: rgba(148, 163, 184, 0.1);
+            color: var(--text-muted);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+        }
+
+        .pill-state.fault {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--accent-red);
+            border: 1px solid var(--accent-red);
+            animation: pulse 1.5s infinite;
+        }
+
+        /* Controls Card */
+        .action-btn-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .btn-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
         button {
-            background-color: var(--primary);
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            font-size: 1em;
-            border-radius: 5px;
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.9rem;
+            font-weight: 600;
+            padding: 12px 16px;
+            border-radius: 12px;
+            border: 1px solid transparent;
             cursor: pointer;
-            transition: background 0.3s;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
         }
-        button:hover { background-color: #0056b3; }
-        button:active { transform: scale(0.98); }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #0284c7, #0369a1);
+            color: white;
+            box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3);
+        }
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #0369a1, #075985);
+            transform: translateY(-1px);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+        }
+        .btn-success:hover {
+            background: linear-gradient(135deg, #059669, #047857);
+            transform: translateY(-1px);
+        }
+
+        .btn-warning {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            color: white;
+        }
+        .btn-warning:hover {
+            background: linear-gradient(135deg, #d97706, #b45309);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            color: white;
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+        }
+        .btn-danger:hover {
+            background: linear-gradient(135deg, #dc2626, #b91c1c);
+            transform: translateY(-1px);
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--card-border);
+            color: var(--text-main);
+        }
+        .btn-outline:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        /* Threshold Controls */
+        .threshold-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            background: rgba(15, 23, 42, 0.5);
+            padding: 10px 14px;
+            border-radius: 12px;
+            border: 1px solid var(--card-border);
+        }
+
+        .threshold-row span {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .threshold-input-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .threshold-input-group input {
+            width: 55px;
+            background: #0f172a;
+            border: 1px solid var(--card-border);
+            color: var(--primary);
+            padding: 4px 8px;
+            border-radius: 6px;
+            text-align: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+        }
+
+        /* Chart Section */
+        .chart-card {
+            grid-column: 1 / -1;
+            height: 350px;
+        }
+
+        .chart-wrapper {
+            position: relative;
+            flex: 1;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+
+        .modal {
+            background: #1e293b;
+            border: 1px solid var(--card-border);
+            border-radius: 18px;
+            padding: 24px;
+            max-width: 420px;
+            width: 90%;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .modal h3 {
+            font-size: 1.25rem;
+        }
+
+        .modal p {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+
+        .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 8px;
+        }
+
+        @media (max-width: 768px) {
+            body { padding: 12px; }
+            .main-grid { grid-template-columns: 1fr; }
+            .header { flex-direction: column; align-items: flex-start; }
+            .btn-row { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <div class="header">
-        <h1>Water System Dashboard</h1>
-        <div id="connectionStatus" class="status">Disconnected</div>
+<div class="dashboard-container">
+    <!-- Header -->
+    <header>
+        <div class="brand-title">
+            <div class="icon">💧</div>
+            <div>
+                <h1>Smart Water Management</h1>
+                <p>ESP32 IoT Dual-Tank Automation Platform</p>
+            </div>
+        </div>
+
+        <div class="header-meta">
+            <div id="connectionBadge" class="badge badge-disconnected">
+                <span class="badge-pulse-dot"></span>
+                <span id="connectionText">Connecting...</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Error / Alarm Banner -->
+    <div id="alertBanner" class="alert-banner">
+        <span id="alertMessage">⚠️ System Alert: Error detected</span>
+        <button class="btn-warning" style="padding: 4px 12px; font-size: 0.8rem;" onclick="resetFault()">Clear Alarm</button>
     </div>
 
-    <div class="grid">
+    <!-- Main Grid -->
+    <div class="main-grid">
+        <!-- Tank 1 Card -->
         <div class="card">
-            <h3>Tank 1 Level</h3>
-            <div id="tank1Percent" class="value">0%</div>
-            <p>Flow: <span id="flow1">0.0</span> L/min</p>
+            <div class="card-header">
+                <div class="card-title">Tank 1 (Primary)</div>
+                <div id="sensor1Badge" class="card-subtitle">SENSOR: OK</div>
+            </div>
+
+            <div class="tank-visual-container">
+                <div class="tank-cylinder">
+                    <div class="tank-grid-lines">
+                        <div class="tank-mark"></div>
+                        <div class="tank-mark"></div>
+                        <div class="tank-mark"></div>
+                        <div class="tank-mark"></div>
+                        <div class="tank-mark"></div>
+                    </div>
+                    <div id="tank1Fill" class="tank-water-fill"></div>
+                </div>
+
+                <div class="tank-metrics">
+                    <div class="metric-item">
+                        <div class="metric-label">Water Level</div>
+                        <div id="tank1Percent" class="metric-val">0%</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-label">Flow Rate 1</div>
+                        <div id="flow1Val" class="metric-val">0.0 <span style="font-size: 0.9rem; color: var(--text-muted);">L/min</span></div>
+                    </div>
+                </div>
+            </div>
         </div>
+
+        <!-- Tank 2 Card -->
         <div class="card">
-            <h3>Tank 2 Level</h3>
-            <div id="tank2Percent" class="value">0%</div>
-            <p>Flow: <span id="flow2">0.0</span> L/min</p>
+            <div class="card-header">
+                <div class="card-title">Tank 2 (Secondary)</div>
+                <div id="sensor2Badge" class="card-subtitle">SENSOR: OK</div>
+            </div>
+
+            <div class="tank-visual-container">
+                <div class="tank-cylinder">
+                    <div class="tank-grid-lines">
+                        <div class="tank-mark"></div>
+                        <div class="tank-mark"></div>
+                        <div class="tank-mark"></div>
+                        <div class="tank-mark"></div>
+                        <div class="tank-mark"></div>
+                    </div>
+                    <div id="tank2Fill" class="tank-water-fill"></div>
+                </div>
+
+                <div class="tank-metrics">
+                    <div class="metric-item">
+                        <div class="metric-label">Water Level</div>
+                        <div id="tank2Percent" class="metric-val">0%</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-label">Flow Rate 2</div>
+                        <div id="flow2Val" class="metric-val">0.0 <span style="font-size: 0.9rem; color: var(--text-muted);">L/min</span></div>
+                    </div>
+                </div>
+            </div>
         </div>
+
+        <!-- System & Actuator Status Card -->
         <div class="card">
-            <h3>System Status</h3>
-            <div id="pumpStatus" class="value" style="color: #555;">IDLE</div>
-            <button onclick="calibrateTanks()">Calibrate Empty Tanks</button>
+            <div class="card-header">
+                <div class="card-title">System Status</div>
+                <div id="stateBadge" class="card-subtitle">IDLE</div>
+            </div>
+
+            <div class="status-pill-grid">
+                <div class="status-pill">
+                    <span class="pill-name">Main Pump</span>
+                    <span id="pumpStatusPill" class="pill-state inactive">OFF</span>
+                </div>
+                <div class="status-pill">
+                    <span class="pill-name">Valve 1 (T1)</span>
+                    <span id="valve1StatusPill" class="pill-state inactive">CLOSED</span>
+                </div>
+                <div class="status-pill">
+                    <span class="pill-name">Valve 2 (T2)</span>
+                    <span id="valve2StatusPill" class="pill-state inactive">CLOSED</span>
+                </div>
+                <div class="status-pill">
+                    <span class="pill-name">Dry-Run Shield</span>
+                    <span id="dryrunStatusPill" class="pill-state active">GUARDED</span>
+                </div>
+            </div>
+
+            <!-- Auto Hysteresis Thresholds Display -->
+            <div class="threshold-row">
+                <span>Hysteresis Setpoints:</span>
+                <div class="threshold-input-group">
+                    <span>Low:</span>
+                    <input type="number" id="inputLowThresh" value="75" min="10" max="90">
+                    <span>%</span>
+                    <span>High:</span>
+                    <input type="number" id="inputHighThresh" value="95" min="20" max="100">
+                    <span>%</span>
+                    <button class="btn-outline" style="padding: 4px 8px;" onclick="applyThresholds()" title="Apply Setpoints">✓</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Interactive Control Deck Card -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">Control Deck</div>
+                <div class="card-subtitle">OPERATIONS</div>
+            </div>
+
+            <div class="action-btn-group">
+                <div class="btn-row">
+                    <button class="btn-primary" onclick="manualFill(1)">
+                        <span>⬆ Fill Tank 1</span>
+                    </button>
+                    <button class="btn-primary" onclick="manualFill(2)">
+                        <span>⬆ Fill Tank 2</span>
+                    </button>
+                </div>
+
+                <div class="btn-row">
+                    <button class="btn-outline" onclick="openCalibrateModal()">
+                        <span>⚙ Calibrate Empty</span>
+                    </button>
+                    <button class="btn-success" onclick="resetFault()">
+                        <span>🔄 Reset / Resume</span>
+                    </button>
+                </div>
+
+                <button class="btn-danger" onclick="emergencyStop()">
+                    <span>🛑 EMERGENCY STOP</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Real-Time Flow & Tank Chart -->
+        <div class="card chart-card">
+            <div class="card-header">
+                <div class="card-title">Real-Time Flow & Level Analytics</div>
+                <div class="card-subtitle">LIVE TELEMETRY</div>
+            </div>
+            <div class="chart-wrapper">
+                <canvas id="telemetryChart"></canvas>
+            </div>
         </div>
     </div>
+</div>
 
-    <div class="chart-container">
-        <canvas id="flowChart"></canvas>
+<!-- Modal for Calibration -->
+<div id="calibrateModal" class="modal-overlay">
+    <div class="modal">
+        <h3>Calibrate Empty Distance</h3>
+        <p>Ensure both Tank 1 and Tank 2 are completely drained. The ultrasonic sensors will take 10 averaged samples to recompute the empty baseline depth.</p>
+        <div class="modal-actions">
+            <button class="btn-outline" onclick="closeCalibrateModal()">Cancel</button>
+            <button class="btn-warning" onclick="confirmCalibrate()">Confirm Calibration</button>
+        </div>
     </div>
 </div>
 
 <script>
-    // --- MQTT Configuration ---
-    // Using EMQX public broker WebSockets port (8083)
-    const brokerUrl = 'ws://broker.emqx.io:8083/mqtt';
-    const telemetryTopic = 'water_system/sensors';
-    const commandTopic = 'water_system/commands';
-    
-    // Connect to the MQTT broker
-    const client = mqtt.connect(brokerUrl);
+    // ==========================================
+    // MQTT Setup & Auto-WSS Detection
+    // ==========================================
+    const isHttps = window.location.protocol === 'https:';
+    // Use WSS port 8084 on HTTPS, WS port 8083 on HTTP
+    const brokerUrl = isHttps ? 'wss://broker.emqx.io:8084/mqtt' : 'ws://broker.emqx.io:8083/mqtt';
+    const topicSensors = 'water_system/sensors';
+    const topicCommands = 'water_system/commands';
 
-    // --- Chart.js Setup ---
-    const ctx = document.getElementById('flowChart').getContext('2d');
-    const maxDataPoints = 20; // Number of points to show on the graph
-    
-    const flowChart = new Chart(ctx, {
+    const clientId = 'WebDashboard_' + Math.random().toString(16).substring(2, 8);
+    console.log(`Connecting to ${brokerUrl} with ID ${clientId}`);
+
+    const client = mqtt.connect(brokerUrl, {
+        clientId: clientId,
+        clean: true,
+        reconnectPeriod: 3000
+    });
+
+    // ==========================================
+    // Chart.js Configuration
+    // ==========================================
+    const ctx = document.getElementById('telemetryChart').getContext('2d');
+    const MAX_POINTS = 30;
+
+    const telemetryChart = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: [], // Time labels
+            labels: [],
             datasets: [
                 {
                     label: 'Flow 1 (L/min)',
-                    borderColor: '#007bff',
-                    backgroundColor: 'rgba(0, 123, 255, 0.1)',
                     data: [],
-                    fill: true,
-                    tension: 0.3
+                    borderColor: '#38bdf8',
+                    backgroundColor: 'rgba(56, 189, 248, 0.1)',
+                    borderWidth: 2,
+                    yAxisID: 'yFlow',
+                    tension: 0.35,
+                    fill: true
                 },
                 {
                     label: 'Flow 2 (L/min)',
-                    borderColor: '#28a745',
-                    backgroundColor: 'rgba(40, 167, 69, 0.1)',
                     data: [],
-                    fill: true,
-                    tension: 0.3
+                    borderColor: '#818cf8',
+                    backgroundColor: 'rgba(129, 140, 248, 0.1)',
+                    borderWidth: 2,
+                    yAxisID: 'yFlow',
+                    tension: 0.35,
+                    fill: true
+                },
+                {
+                    label: 'Tank 1 (%)',
+                    data: [],
+                    borderColor: '#10b981',
+                    borderDash: [5, 5],
+                    borderWidth: 1.5,
+                    yAxisID: 'yLevel',
+                    tension: 0.2
+                },
+                {
+                    label: 'Tank 2 (%)',
+                    data: [],
+                    borderColor: '#f59e0b',
+                    borderDash: [5, 5],
+                    borderWidth: 1.5,
+                    yAxisID: 'yLevel',
+                    tension: 0.2
                 }
             ]
         },
         options: {
             responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
             scales: {
-                y: { beginAtZero: true, title: { display: true, text: 'Liters per Minute' } },
-                x: { title: { display: true, text: 'Time' } }
+                x: {
+                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                    ticks: { color: '#94a3b8', font: { family: 'JetBrains Mono', size: 10 } }
+                },
+                yFlow: {
+                    type: 'linear',
+                    position: 'left',
+                    min: 0,
+                    suggestedMax: 10,
+                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                    ticks: { color: '#38bdf8', font: { family: 'JetBrains Mono' } },
+                    title: { display: true, text: 'Flow Rate (L/min)', color: '#94a3b8' }
+                },
+                yLevel: {
+                    type: 'linear',
+                    position: 'right',
+                    min: 0,
+                    max: 100,
+                    grid: { drawOnChartArea: false },
+                    ticks: { color: '#10b981', font: { family: 'JetBrains Mono' } },
+                    title: { display: true, text: 'Level (%)', color: '#94a3b8' }
+                }
             },
-            animation: { duration: 0 } // Disable animation for smoother real-time updates
-        }
-    });
-
-    // --- MQTT Event Handlers ---
-    
-    client.on('connect', () => {
-        console.log('Connected to MQTT Broker via WebSockets');
-        const statusEl = document.getElementById('connectionStatus');
-        statusEl.innerText = 'Connected';
-        statusEl.classList.add('connected');
-        
-        // Subscribe to the telemetry topic
-        client.subscribe(telemetryTopic, (err) => {
-            if (err) console.error('Subscription error:', err);
-        });
-    });
-
-    client.on('message', (topic, message) => {
-        if (topic === telemetryTopic) {
-            try {
-                const data = JSON.parse(message.toString());
-                updateDashboard(data);
-            } catch (e) {
-                console.error("Error parsing JSON:", e);
+            plugins: {
+                legend: {
+                    labels: { color: '#f1f5f9', font: { family: 'Outfit', size: 12 } }
+                }
             }
         }
     });
 
-    client.on('close', () => {
-        const statusEl = document.getElementById('connectionStatus');
-        statusEl.innerText = 'Disconnected';
-        statusEl.classList.remove('connected');
+    // ==========================================
+    // MQTT Events
+    // ==========================================
+    client.on('connect', () => {
+        console.log('Connected to MQTT Broker via WebSockets');
+        const badge = document.getElementById('connectionBadge');
+        badge.className = 'badge badge-connected';
+        document.getElementById('connectionText').innerText = 'Connected';
+        client.subscribe(topicSensors);
     });
 
-    // --- UI & Graph Update Logic ---
+    client.on('offline', () => {
+        const badge = document.getElementById('connectionBadge');
+        badge.className = 'badge badge-disconnected';
+        document.getElementById('connectionText').innerText = 'Reconnecting...';
+    });
+
+    client.on('message', (topic, payload) => {
+        if (topic === topicSensors) {
+            try {
+                const data = JSON.parse(payload.toString());
+                updateDashboard(data);
+            } catch (err) {
+                console.error("Failed to parse telemetry JSON", err);
+            }
+        }
+    });
+
+    // ==========================================
+    // UI Update Logic
+    // ==========================================
     function updateDashboard(data) {
-        // Update text values
-        document.getElementById('tank1Percent').innerText = data.tank1_percent + '%';
-        document.getElementById('tank2Percent').innerText = data.tank2_percent + '%';
-        document.getElementById('flow1').innerText = data.flowrate1_Lmin.toFixed(1);
-        document.getElementById('flow2').innerText = data.flowrate2_Lmin.toFixed(1);
-        
-        const pumpEl = document.getElementById('pumpStatus');
-        if (data.pump_active) {
-            pumpEl.innerText = 'PUMPING';
-            pumpEl.style.color = '#28a745';
+        // Tank 1
+        const t1Fill = document.getElementById('tank1Fill');
+        const t1Text = document.getElementById('tank1Percent');
+        const s1Badge = document.getElementById('sensor1Badge');
+        if (data.tank1_percent >= 0) {
+            t1Fill.style.height = `${data.tank1_percent}%`;
+            t1Text.innerText = `${data.tank1_percent}%`;
+            s1Badge.innerText = 'SENSOR: OK';
+            s1Badge.style.color = '#10b981';
         } else {
-            pumpEl.innerText = 'IDLE';
-            pumpEl.style.color = '#555';
+            t1Fill.style.height = `0%`;
+            t1Text.innerText = `ERR`;
+            s1Badge.innerText = 'SENSOR: FAULT';
+            s1Badge.style.color = '#ef4444';
         }
 
-        // Update Chart
+        // Tank 2
+        const t2Fill = document.getElementById('tank2Fill');
+        const t2Text = document.getElementById('tank2Percent');
+        const s2Badge = document.getElementById('sensor2Badge');
+        if (data.tank2_percent >= 0) {
+            t2Fill.style.height = `${data.tank2_percent}%`;
+            t2Text.innerText = `${data.tank2_percent}%`;
+            s2Badge.innerText = 'SENSOR: OK';
+            s2Badge.style.color = '#10b981';
+        } else {
+            t2Fill.style.height = `0%`;
+            t2Text.innerText = `ERR`;
+            s2Badge.innerText = 'SENSOR: FAULT';
+            s2Badge.style.color = '#ef4444';
+        }
+
+        // Flow Rates
+        document.getElementById('flow1Val').innerHTML = `${(data.flowrate1_Lmin || 0).toFixed(1)} <span style="font-size: 0.9rem; color: var(--text-muted);">L/min</span>`;
+        document.getElementById('flow2Val').innerHTML = `${(data.flowrate2_Lmin || 0).toFixed(1)} <span style="font-size: 0.9rem; color: var(--text-muted);">L/min</span>`;
+
+        // Actuators
+        setPillState('pumpStatusPill', data.pump_active ? 'active' : 'inactive', data.pump_active ? 'RUNNING' : 'OFF');
+        setPillState('valve1StatusPill', data.valve1_active ? 'active' : 'inactive', data.valve1_active ? 'OPEN' : 'CLOSED');
+        setPillState('valve2StatusPill', data.valve2_active ? 'active' : 'inactive', data.valve2_active ? 'OPEN' : 'CLOSED');
+
+        // State & Alarms
+        const stateBadge = document.getElementById('stateBadge');
+        stateBadge.innerText = data.system_state || 'IDLE';
+
+        const alertBanner = document.getElementById('alertBanner');
+        if (data.system_state === 'DRY_RUN_ERROR' || data.system_state === 'SENSOR_ERROR' || (data.fault_message && data.fault_message !== 'None')) {
+            alertBanner.style.display = 'flex';
+            document.getElementById('alertMessage').innerText = `⚠️ Alert: ${data.fault_message || data.system_state}`;
+            setPillState('dryrunStatusPill', 'fault', 'TRIPPED');
+        } else {
+            alertBanner.style.display = 'none';
+            setPillState('dryrunStatusPill', 'active', 'GUARDED');
+        }
+
+        // Threshold inputs sync
+        if (data.low_threshold) document.getElementById('inputLowThresh').value = data.low_threshold;
+        if (data.high_threshold) document.getElementById('inputHighThresh').value = data.high_threshold;
+
+        // Chart Update
         const now = new Date();
-        const timeString = now.getHours().toString().padStart(2, '0') + ':' + 
-                           now.getMinutes().toString().padStart(2, '0') + ':' + 
-                           now.getSeconds().toString().padStart(2, '0');
+        const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
 
-        flowChart.data.labels.push(timeString);
-        flowChart.data.datasets[0].data.push(data.flowrate1_Lmin);
-        flowChart.data.datasets[1].data.push(data.flowrate2_Lmin);
+        telemetryChart.data.labels.push(timeStr);
+        telemetryChart.data.datasets[0].data.push(data.flowrate1_Lmin || 0);
+        telemetryChart.data.datasets[1].data.push(data.flowrate2_Lmin || 0);
+        telemetryChart.data.datasets[2].data.push(data.tank1_percent >= 0 ? data.tank1_percent : 0);
+        telemetryChart.data.datasets[3].data.push(data.tank2_percent >= 0 ? data.tank2_percent : 0);
 
-        // Remove oldest data point if we exceed maxDataPoints
-        if (flowChart.data.labels.length > maxDataPoints) {
-            flowChart.data.labels.shift();
-            flowChart.data.datasets[0].data.shift();
-            flowChart.data.datasets[1].data.shift();
+        if (telemetryChart.data.labels.length > MAX_POINTS) {
+            telemetryChart.data.labels.shift();
+            telemetryChart.data.datasets.forEach(ds => ds.data.shift());
         }
-        
-        flowChart.update();
+        telemetryChart.update();
     }
 
-    // --- Command Logic ---
-    function calibrateTanks() {
-        if (confirm("Are you sure? Ensure both tanks are currently completely empty before calibrating.")) {
-            const payload = JSON.stringify({ action: "calibrate" });
-            client.publish(commandTopic, payload);
-            alert("Calibration command sent to ESP32.");
+    function setPillState(id, className, text) {
+        const el = document.getElementById(id);
+        el.className = `pill-state ${className}`;
+        el.innerText = text;
+    }
+
+    // ==========================================
+    // Command Handlers
+    // ==========================================
+    function publishCommand(cmdObj) {
+        if (!client.connected) {
+            alert('MQTT broker not connected. Please check network.');
+            return;
         }
+        client.publish(topicCommands, JSON.stringify(cmdObj));
+    }
+
+    function manualFill(tankNum) {
+        publishCommand({ action: "manual_fill", tank: tankNum });
+    }
+
+    function emergencyStop() {
+        publishCommand({ action: "emergency_stop" });
+    }
+
+    function resetFault() {
+        publishCommand({ action: "reset_fault" });
+        document.getElementById('alertBanner').style.display = 'none';
+    }
+
+    function applyThresholds() {
+        const low = parseInt(document.getElementById('inputLowThresh').value);
+        const high = parseInt(document.getElementById('inputHighThresh').value);
+        if (isNaN(low) || isNaN(high) || low >= high || low < 10 || high > 100) {
+            alert("Invalid thresholds: Ensure Low < High, Low >= 10%, High <= 100%.");
+            return;
+        }
+        publishCommand({ action: "set_thresholds", low: low, high: high });
+        alert(`Setpoints sent: Low = ${low}%, High = ${high}%`);
+    }
+
+    // Modal
+    function openCalibrateModal() {
+        document.getElementById('calibrateModal').style.display = 'flex';
+    }
+
+    function closeCalibrateModal() {
+        document.getElementById('calibrateModal').style.display = 'none';
+    }
+
+    function confirmCalibrate() {
+        closeCalibrateModal();
+        publishCommand({ action: "calibrate" });
+        alert('Calibration command sent to ESP32. Calibration will take ~3 seconds.');
     }
 </script>
 
